@@ -7,16 +7,15 @@ from app.pets.pets_repository import PetsRepository, pets_repository
 from app.pets.pets_schemas import CreatePetDto, Pet, PetList, UpdatePetDto
 from app.shared.datetimes import utc_now
 from app.shared.exceptions import conflict
-from app.students.students_service import StudentsService, students_service
+from app.students.students_service import StudentsService
 
 
 class PetsService:
-    def __init__(self, repository: PetsRepository, students: StudentsService) -> None:
+    def __init__(self, repository: PetsRepository) -> None:
         self.repository = repository
-        self.students_service = students
 
     def find_all_for_student(self, db: Session, student_id: str) -> PetList:
-        self.students_service.find_by_id(db, student_id)
+        StudentsService(db).find_by_id(student_id)
 
         pets = self.repository.find_all_by_student(db, student_id)
         pets_sorted = sorted(
@@ -31,7 +30,7 @@ class PetsService:
         )
 
     def create(self, db: Session, student_id: str, data: CreatePetDto) -> Pet:
-        self.students_service.find_by_id(db, student_id)
+        StudentsService(db).find_by_id(student_id)
         self.assert_no_conflicts(db, student_id, data)
 
         now = utc_now()
@@ -80,7 +79,7 @@ class PetsService:
     def find_owned_model(
         self, db: Session, student_id: str, pet_id: str
     ) -> PetModel:
-        self.students_service.find_by_id(db, student_id)
+        StudentsService(db).find_by_id(student_id)
 
         pet = self.repository.find_by_id(db, pet_id)
 
@@ -110,4 +109,4 @@ class PetsService:
             )
 
 
-pets_service = PetsService(pets_repository, students_service)
+pets_service = PetsService(pets_repository)
