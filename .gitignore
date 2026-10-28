@@ -6,13 +6,29 @@
 # dotenv files
 .env
 .venv
+venv/
+ENV/
+# Cosas de python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.ruff_cache/
+
 # User-specific files
 *.rsuser
 *.suo
 *.user
 *.userosscache
 *.sln.docstates
+*.vscode
+.idea/
 
+postgres_data/
+
+.DS_Store
+Thumbs.db
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
 

@@ -1,6 +1,25 @@
 
 
 services:
+# Tu aplicación FastAPI / Backend
+  web:
+    build: .
+    container_name: estudiantes_web
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres_db:5432/${POSTGRES_DB}
+      - UV_LINK_MODE=copy
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    depends_on:
+      - postgres_db
+    networks:
+      - backend-network
+    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
   # Base de Datos PostgreSQL
   postgres_db:
     image: postgres:15-alpine
