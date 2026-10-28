@@ -13,4 +13,4 @@ class Pet(Base):
     created_at = Column(DateTime, nullable=False)
     updated_at = Column(DateTime, nullable=False)
 
-    student = relationship("StudentModel", back_populates="pets")
+    student = relationship("Student", back_populates="pets")

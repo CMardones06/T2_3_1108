@@ -2,8 +2,10 @@ from uuid import uuid4
 
 from fastapi import HTTPException, status
 
-from app.pets.pets_repository import PetsRepository, pets_repository
-from app.pets.pets_schemas import Pet
+from sqlalchemy.orm import Session
+
+from app.students.students_model import Student as StudentModel
+from app.pets.pets_model import Pet as PetModel
 from app.shared.datetimes import utc_now
 from app.shared.exceptions import conflict
 from app.shared.types import FieldErrors
@@ -15,18 +17,26 @@ from app.students.students_schemas import (
     UpdateStudentDto,
 )
 
+STUDENT_NOT_FOUND = "Estudiante no encontrado"
 
 class StudentsService:
-    def __init__(self, repository: StudentsRepository, pets: PetsRepository) -> None:
-        self.repository = repository
-        self.pets_repository = pets
+    def __init__(self, db: Session) -> None:
+        self.db = db
+        self.repository = StudentsRepository(db)
 
     def find_all(self) -> StudentList:
+        students = self.repository.find_all()
+
         students = sorted(
-            self.repository.find_all(), key=lambda s: s.createdAt, reverse=True
+            students,
+            key=lambda student: student.created_at,
+            reverse=True,
         )
 
-        return StudentList(total=len(students), items=students)
+        return StudentList(
+            total=len(students),
+            items=[Student.model_validate(student) for student in students],
+    )
 
     def find_by_id(self, student_id: str) -> Student:
         student = self.repository.find_by_id(student_id)
@@ -34,72 +44,124 @@ class StudentsService:
         if student is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Estudiante no encontrado",
+                detail=STUDENT_NOT_FOUND,
             )
 
-        return student
+        return Student.model_validate(student)
+
 
     def create(self, data: CreateStudentDto) -> Student:
         self.assert_no_conflicts(data)
 
         now = utc_now()
-        student = Student(
-            id=str(uuid4()),
+        student_id = str(uuid4())
+
+        student = StudentModel(
+            id=student_id,
             name=data.name,
             username=data.username,
-            email=data.email,
+            email=str(data.email),
             age=data.age,
-            createdAt=now,
-            updatedAt=now,
+            created_at=now,
+            updated_at=now,
         )
 
-        self.repository.save(student)
+        try:
+            saved_student = self.repository.save(student)
 
-        # En SQL/ORM, insertar el estudiante y sus mascotas debe ir dentro de una
-        # transacción: si una mascota falla, el estudiante no debe quedar creado.
-        for pet_data in data.pets:
-            existing = self.pets_repository.find_by_student_and_name(
-                student.id, pet_data.name
-            )
+            pet_names = set()
 
-            if existing is not None:
-                raise conflict(
-                    {"name": {"message": "Ya tienes una mascota con ese nombre"}}
+            for pet_data in data.pets:
+  
+                if pet_data.name in pet_names:
+                    raise conflict({
+                        "pets": {
+                            "message": "No puede haber mascotas con el mismo nombre"
+                        }
+                    })
+
+                pet_names.add(pet_data.name)
+
+                pet = PetModel(
+                    id=str(uuid4()),
+                    student_id=student_id,
+                    name=pet_data.name,
+                    species=pet_data.species,
+                    age=pet_data.age,
+                    created_at=now,
+                    updated_at=now,
                 )
 
-            pet_now = utc_now()
-            pet = Pet(
-                id=str(uuid4()),
-                studentId=student.id,
-                name=pet_data.name,
-                species=pet_data.species,
-                age=pet_data.age,
-                createdAt=pet_now,
-                updatedAt=pet_now,
+                self.db.add(pet)
+
+            self.db.flush()
+
+
+            self.db.commit()
+
+            self.db.refresh(saved_student)
+
+            return Student.model_validate(saved_student)
+
+        except Exception:
+            # Si falla cualquier operación, deshacer toda la transacción.
+            self.db.rollback()
+            raise
+
+
+    
+    def update(self, student_id: str, data: UpdateStudentDto) -> Student:
+        student = self.repository.find_by_id(student_id)
+
+        if student is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=STUDENT_NOT_FOUND,
             )
 
-            self.pets_repository.save(pet)
-
-        return student
-
-    def update(self, student_id: str, data: UpdateStudentDto) -> Student:
-        existing = self.find_by_id(student_id)
         self.assert_no_conflicts(data, except_id=student_id)
 
-        updated = existing.model_copy(
-            update={
-                **data.model_dump(exclude_none=True),
-                "updatedAt": utc_now(),
-            }
-        )
+        changes = data.model_dump(exclude_unset=True, exclude_none=True)
 
-        return self.repository.save(updated)
+        for field, value in changes.items():
+            setattr(student, field, value)
 
+        student.updated_at = utc_now()
+
+        try:
+            saved_student = self.repository.save(student)
+            self.db.commit()
+            self.db.refresh(saved_student)
+
+            return Student.model_validate(saved_student)
+
+        except Exception:
+            self.db.rollback()
+            raise
+
+
+    
     def delete(self, student_id: str) -> Student:
-        existing = self.find_by_id(student_id)
-        self.repository.delete(student_id)
+        student = self.repository.find_by_id(student_id)
 
-        return existing
+        if student is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=STUDENT_NOT_FOUND,
+            )
+
+        deleted_student = Student.model_validate(student)
+
+        try:
+            self.repository.delete(student_id)
+            self.db.commit()
+
+            return deleted_student
+
+        except Exception:
+            self.db.rollback()
+            raise
+
 
     def assert_no_conflicts(
         self,
@@ -120,7 +182,3 @@ class StudentsService:
 
         if errors:
             raise conflict(errors)
-
-
-students_repository = StudentsRepository()
-students_service = StudentsService(students_repository, pets_repository)

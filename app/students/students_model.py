@@ -13,4 +13,4 @@ class Student(Base):
     created_at = Column(DateTime, nullable=False)
     updated_at = Column(DateTime, nullable=False)
 
-    pets = relationship("PetModel", back_populates="student", cascade="all, delete-orphan")
+    pets = relationship("Pet", back_populates="student", cascade="all, delete-orphan")
