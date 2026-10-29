@@ -15,6 +15,7 @@ services:
       - .env
     volumes:
       - .:/app
+      - /app/.venv
     depends_on:
       - postgres_db
     networks:
